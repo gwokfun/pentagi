@@ -13,12 +13,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**PentAGI** is an automated security testing platform powered by AI agents. It runs autonomous penetration testing workflows using a multi-agent system (Researcher, Developer, Executor agents) that coordinates LLM providers, Docker-sandboxed tool execution, and a persistent vector memory store.
+**PentAGI** is an automated security testing platform powered by AI agents. This is a **simplified version** configured to run with only **DeepSeek** as the LLM provider, making it easy to get started quickly.
 
 The application is a monorepo with:
 - **`backend/`** — Go REST + GraphQL API server
 - **`frontend/`** — React + TypeScript web UI
-- **`observability/`** — Optional monitoring stack configs
+
+## Quick Start
+
+### Minimum Requirements
+
+```bash
+# .env file - only these are required:
+DEEPSEEK_API_KEY=your-deepseek-api-key
+PENTAGI_POSTGRES_PASSWORD=change-this-password
+COOKIE_SIGNING_SALT=change-this-salt
+```
+
+Run with:
+```bash
+docker compose up -d
+```
+
+Access at: https://localhost:8443
 
 ## Build & Development Commands
 
@@ -28,7 +45,6 @@ The application is a monorepo with:
 go mod download                              # Install dependencies
 go build -trimpath -o pentagi ./cmd/pentagi  # Build main binary
 go test ./...                                # Run all tests
-go test ./pkg/foo/... -v -run TestName       # Run specific test
 golangci-lint run --timeout=5m               # Lint
 
 # Code generation (run after schema changes)
@@ -43,48 +59,54 @@ npm ci                    # Install dependencies
 npm run dev               # Dev server on http://localhost:8000
 npm run build             # Production build
 npm run lint              # ESLint check
-npm run lint:fix          # ESLint auto-fix
-npm run prettier          # Prettier check
-npm run prettier:fix      # Prettier auto-format
 npm run test              # Vitest
-npm run test:coverage     # Coverage report
 npm run graphql:generate  # Regenerate GraphQL types from schema
 ```
 
 ### Docker (run from repo root)
 
 ```bash
-docker compose up -d                                                          # Start core services
-docker compose -f docker-compose.yml -f docker-compose-observability.yml up -d  # + monitoring
-docker compose -f docker-compose.yml -f docker-compose-langfuse.yml up -d       # + LLM analytics
-docker compose -f docker-compose.yml -f docker-compose-graphiti.yml up -d       # + knowledge graph
-docker build -t local/pentagi:latest .                                        # Build image
+docker compose up -d                          # Start core services
+docker build -t local/pentagi:latest .        # Build image
 ```
 
-The full stack runs at `https://localhost:8443` when using Docker Compose. Copy `.env.example` to `.env` and fill in at minimum the database and at least one LLM provider key.
+## Architecture (Simplified Version)
 
-## Architecture
+### What's Included
+
+- **DeepSeek LLM Provider** - The only supported LLM provider
+- **PostgreSQL + pgvector** - Required database with vector storage
+- **DuckDuckGo Search** - Default search engine (no API key needed)
+- **Web Scraper** - For gathering web information
+- **Docker Isolation** - Safe sandboxed execution
+- **Multi-Agent System** - Researcher, Developer, Executor agents
+
+### What's Removed
+
+To keep the setup simple, these features are **not included**:
+- ❌ Multiple LLM providers (OpenAI, Anthropic, Gemini, Bedrock, Ollama, etc.)
+- ❌ OAuth authentication (Google, GitHub)
+- ❌ Advanced search engines (Tavily, Perplexity, Google, Searxng, etc.)
+- ❌ Observability stack (Langfuse, OpenTelemetry, Grafana)
+- ❌ Knowledge graph (Graphiti + Neo4j)
+- ❌ PentAGI Cloud/License integration
 
 ### Backend Package Structure
 
 | Package | Role |
 |---|---|
 | `cmd/pentagi/` | Main entry point; initializes config, DB, server |
-| `pkg/config/` | Environment-based config parsing |
-| `pkg/server/` | Gin router, middleware, auth (JWT/OAuth2/API tokens), Swagger |
+| `pkg/config/` | Environment-based config parsing (simplified) |
+| `pkg/server/` | Gin router, middleware, auth (JWT/API tokens), Swagger |
 | `pkg/controller/` | Business logic for REST endpoints |
-| `pkg/graph/` | gqlgen GraphQL schema (`schema.graphqls`) and resolvers |
+| `pkg/graph/` | gqlgen GraphQL schema and resolvers |
 | `pkg/database/` | GORM models, SQLC queries, goose migrations |
-| `pkg/providers/` | LLM provider adapters (OpenAI, Anthropic, Gemini, Bedrock, Ollama, etc.) |
+| `pkg/providers/` | DeepSeek LLM provider integration |
 | `pkg/tools/` | Penetration testing tool integrations |
-| `pkg/docker/` | Docker SDK wrapper for sandboxed container execution |
-| `pkg/terminal/` | Terminal session and command execution management |
+| `pkg/docker/` | Docker SDK wrapper for sandboxed execution |
+| `pkg/terminal/` | Terminal session management |
 | `pkg/queue/` | Async task queue |
-| `pkg/csum/` | Chain summarization for LLM context management |
-| `pkg/graphiti/` | Knowledge graph (Neo4j via Graphiti) integration |
-| `pkg/observability/` | OpenTelemetry tracing, metrics, structured logging |
-
-Database migrations live in `backend/migrations/sql/` and run automatically via goose at startup.
+| `pkg/csum/` | Chain summarization for context management |
 
 ### Frontend Structure
 
@@ -93,58 +115,64 @@ frontend/src/
 ├── app.tsx / main.tsx     # Entry points and router setup
 ├── pages/                 # Route-level page components
 │   ├── flows/             # Flow management UI
-│   └── settings/          # Provider, prompt, token settings
+│   └── settings/          # Provider and prompt settings
 ├── components/
 │   ├── layouts/           # App shell layouts
 │   └── ui/                # Base Radix UI components
-├── graphql/               # Auto-generated Apollo types (do not edit)
+├── graphql/               # Auto-generated Apollo types
 ├── hooks/                 # Custom React hooks
 ├── lib/                   # Apollo client, HTTP utilities
 └── schemas/               # Zod validation schemas
 ```
 
-State is managed primarily through Apollo Client (GraphQL) with real-time updates via GraphQL subscriptions over WebSocket.
-
 ### Data Flow
 
-1. User creates a "flow" (penetration test) via the UI or REST API.
-2. The backend queues the flow and spawns agent goroutines.
-3. The Researcher agent gathers information; the Developer plans attack strategies; the Executor runs tools in isolated Docker containers.
-4. Results, tool outputs, and LLM reasoning are stored in PostgreSQL (with pgvector for semantic search/memory).
-5. Real-time progress is pushed to the frontend via GraphQL subscriptions.
+1. User creates a "flow" (penetration test) via the UI or REST API
+2. Backend queues the flow and spawns agent goroutines
+3. Researcher agent gathers information; Developer plans strategies; Executor runs tools
+4. Results stored in PostgreSQL with pgvector for semantic search
+5. Real-time progress pushed to frontend via GraphQL subscriptions
 
 ### Authentication
 
 - **Session cookies** for browser login (secure, httpOnly)
-- **OAuth2** via Google and GitHub
-- **Bearer tokens** (API tokens table) for programmatic API access
+- **Bearer tokens** (API tokens table) for programmatic access
+- OAuth has been removed in this simplified version
 
-### Key Integrations
+### Configuration
 
-- **LLM Providers**: OpenAI, Anthropic, Gemini, AWS Bedrock, Ollama, DeepSeek, GLM, Kimi, Qwen, and custom HTTP endpoints — configured via environment variables or the Settings UI
-- **Search**: DuckDuckGo, Google, Tavily, Traversaal, Perplexity, Searxng
-- **Databases**: PostgreSQL + pgvector (required), Neo4j (optional, for knowledge graph)
-- **Observability**: OpenTelemetry → VictoriaMetrics + Loki + Jaeger → Grafana; Langfuse for LLM analytics
+All configuration is in `.env`:
 
-### Adding a New LLM Provider
+```bash
+# Required
+DEEPSEEK_API_KEY=your-key              # Get from platform.deepseek.com
+PENTAGI_POSTGRES_PASSWORD=changeme     # Database password
+COOKIE_SIGNING_SALT=changeme           # Session security
 
-1. Create `backend/pkg/providers/<name>/<name>.go` implementing the `provider.Provider` interface.
-2. Add a new `Provider<Name> ProviderType` constant and `DefaultProviderName<Name>` in `pkg/providers/provider/provider.go`.
-3. Register the provider in `pkg/providers/providers.go` (`DefaultProviderConfig`, `NewProvider`, `buildProviderFromConfig`, `GetProvider`).
-4. Add the new type to the `Valid()` whitelist in `pkg/server/models/providers.go` — **without this step, the REST API returns 422 Unprocessable Entity**.
-5. Add the env var key to `pkg/config/config.go` (e.g., `<NAME>_API_KEY`, `<NAME>_SERVER_URL`).
-6. Add the new `PROVIDER_TYPE` enum value via a goose migration in `backend/migrations/sql/`.
-7. Add the provider icon in `frontend/src/components/icons/<name>.tsx` and register it in `frontend/src/components/icons/provider-icon.tsx`.
-8. Update the GraphQL schema/types and frontend settings page if needed.
+# Optional
+DUCKDUCKGO_ENABLED=true                # Search engine (default: true)
+MAX_GENERAL_AGENT_TOOL_CALLS=100       # Agent limits
+AGENT_PLANNING_STEP_ENABLED=false      # Planning mode
+```
 
 ### Code Generation
 
-When modifying `backend/pkg/graph/schema.graphqls`, re-run the gqlgen command to regenerate resolver stubs. When modifying REST handler annotations, re-run swag to update Swagger docs. When modifying `frontend/src/graphql/*.graphql` query files, re-run `npm run graphql:generate` to update TypeScript types.
+When modifying `backend/pkg/graph/schema.graphqls`, re-run gqlgen to regenerate resolvers. When modifying REST handler annotations, re-run swag to update Swagger docs. When modifying `frontend/src/graphql/*.graphql` queries, re-run `npm run graphql:generate`.
 
-### Utility Binaries
+## Adding Features Back
 
-The backend contains helper binaries for development/testing:
-- `cmd/ctester/` — tests container execution
-- `cmd/ftester/` — tests LLM function/tool calling
-- `cmd/etester/` — tests embedding providers
-- `cmd/installer/` — interactive TUI wizard for guided deployment setup (configures `.env`, Docker Compose, DB, search engines, etc.)
+If you need features that were removed (multiple LLM providers, OAuth, observability, etc.), you'll need to:
+
+1. Restore the relevant config fields in `pkg/config/config.go`
+2. Restore provider implementations in `pkg/providers/providers.go`
+3. Update `.env.example` with the additional variables
+4. Potentially restore docker-compose override files for additional services
+
+For reference, check the original PentAGI repository for the full implementation.
+
+## Development Tips
+
+- Use `docker compose logs -f pentagi` to see backend logs
+- Frontend dev server proxies API requests to backend
+- Database migrations run automatically on startup
+- Default admin user must be created on first launch via UI
